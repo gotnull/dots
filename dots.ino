@@ -2,7 +2,8 @@
 #include <math.h>
 #include "esp_task_wdt.h" // Include for Watchdog Timer handling
 
-TFT_eSPI tft = TFT_eSPI(135, 240); // Adjusted for 135x240 resolution
+TFT_eSPI tft = TFT_eSPI(135, 240);      // Adjusted for 135x240 resolution
+TFT_eSprite sprite = TFT_eSprite(&tft); // Create a sprite for off-screen drawing
 
 struct Point
 {
@@ -11,12 +12,27 @@ struct Point
   int col;
 };
 
-Point pt[27]; // Ensure array size matches the number of points
-float t = 0;
+// Pico-8 color palette in RGB565 (Black removed)
+uint16_t pico8_colors[] = {
+    0x18C3, // Dark Blue
+    0x7C09, // Dark Purple
+    0x016A, // Dark Green
+    0xA9A4, // Brown
+    0x52EA, // Dark Gray
+    0xC618, // Light Gray
+    0xFFFB, // White
+    0xF810, // Red
+    0xFD60, // Orange
+    0xFFE0, // Yellow
+    0x07E6, // Green
+    0x2B7F, // Blue
+    0x8418, // Lavender
+    0xFE36, // Pink
+    0xFF55  // Peach
+};
 
-// Colors (adjust to your setup)
-uint16_t colors[] = {
-    TFT_WHITE, TFT_RED, TFT_GREEN, TFT_BLUE, TFT_YELLOW, TFT_CYAN, TFT_MAGENTA, TFT_ORANGE};
+Point pt[216]; // Adjusted array size for 6x6x6 grid (6*6*6 = 216 points)
+float t = 0;
 
 void setup()
 {
@@ -25,20 +41,23 @@ void setup()
   tft.setRotation(0); // Portrait mode
   tft.fillScreen(TFT_BLACK);
 
-  // Initialize points
+  // Initialize the sprite to match the screen size (135x240)
+  sprite.createSprite(135, 240);
+
+  // Initialize points for a 6x6x6 grid with better increments (spacing of 0.4)
   int idx = 0;
-  for (float y = -1; y <= 1; y += 1.0 / 3)
+  for (float y = -1; y <= 1; y += 0.4) // 6 steps evenly spaced along y-axis
   {
-    for (float x = -1; x <= 1; x += 1.0 / 3)
+    for (float x = -1; x <= 1; x += 0.4) // 6 steps evenly spaced along x-axis
     {
-      for (float z = -1; z <= 1; z += 1.0 / 3)
+      for (float z = -1; z <= 1; z += 0.4) // 6 steps evenly spaced along z-axis
       {
-        if (idx < 27)
+        if (idx < 216)
         { // Ensure we stay within array bounds
           pt[idx].x = x;
           pt[idx].y = y;
           pt[idx].z = z;
-          pt[idx].col = 8 + (int(x * 2 + y * 3) % 8);
+          pt[idx].col = idx % 15; // Cycle through 15 Pico-8 colors
           idx++;
         }
       }
@@ -74,11 +93,11 @@ void loop()
   esp_task_wdt_reset(); // Feed the watchdog timer in each loop
   checkMemory();        // Monitor memory usage in each loop
 
-  tft.fillScreen(TFT_BLACK); // Clear screen
-  t += 0.05;                 // Increment time
+  sprite.fillSprite(TFT_BLACK); // Clear the sprite (instead of the screen)
+  t += 0.05;                    // Increment time
 
   // Transform and rotate points
-  for (int i = 0; i < 27; i++)
+  for (int i = 0; i < 216; i++)
   {
     float cx, cz;
     rot(pt[i].x, pt[i].z, t / 8, cx, cz);
@@ -88,12 +107,18 @@ void loop()
     rot(pt[i].y, pt[i].cz, t / 7, pt[i].cy, pt[i].cz);
 
     pt[i].cz += 2 + cos(t / 6);
+
+    // Limit cz to avoid division by very small numbers
+    if (pt[i].cz < 0.1)
+    {
+      pt[i].cz = 0.1;
+    }
   }
 
   // Sort points (bubble sort, furthest first)
   for (int pass = 0; pass < 4; pass++)
   {
-    for (int i = 0; i < 26; i++)
+    for (int i = 0; i < 215; i++)
     { // Array bounds check
       if (pt[i].cz < pt[i + 1].cz)
       {
@@ -104,20 +129,21 @@ void loop()
     }
   }
 
-  // Draw points
+  // Draw points in the sprite
   float rad1 = 5 + cos(t / 4) * 4;
-  for (int i = 0; i < 27; i++)
+  for (int i = 0; i < 216; i++)
   {
     float sx = 67 + pt[i].cx * 64 / pt[i].cz; // Adjusted for 135x240 screen
     float sy = 120 + pt[i].cy * 64 / pt[i].cz;
     float rad = rad1 / pt[i].cz;
 
-    if (pt[i].cz > 0.1)
+    // Ensure points are within screen bounds
+    if (sx > 0 && sx < 135 && sy > 0 && sy < 240)
     {
-      tft.fillCircle(sx, sy, rad, colors[pt[i].col % 8]);
-      tft.fillCircle(sx + rad / 3, sy - rad / 3, rad / 3, TFT_WHITE);
+      sprite.fillCircle(sx, sy, rad, pico8_colors[pt[i].col % 15]); // Use Pico-8 colors
+      sprite.fillCircle(sx + rad / 3, sy - rad / 3, rad / 3, TFT_WHITE);
     }
   }
 
-  delay(16); // Roughly 60 FPS
+  sprite.pushSprite(0, 0); // Push the sprite to the screen
 }
