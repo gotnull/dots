@@ -47,7 +47,7 @@ void setup()
   tft.fillScreen(TFT_BLACK);
 
   // Initialize the sprite to match the screen size (135x240)
-  sprite.createSprite(TFT_WIDTH, TFT_HEIGHT);
+  sprite.createSprite(135, 240);
 
   // Initialize points for a 6x6x6 grid
   int idx = 0;
@@ -80,20 +80,22 @@ void setup()
   esp_task_wdt_add(NULL); // Add the current task to the watchdog
 }
 
-void checkMemory()
+void checkMemoryEveryFewFrames()
 {
-  Serial.print("Free heap: ");
-  Serial.println(ESP.getFreeHeap()); // Print free heap memory to monitor memory usage
+  static int frame_count = 0;
+  frame_count++;
+  if (frame_count % 100 == 0)
+  {
+    Serial.print("Free heap: ");
+    Serial.println(ESP.getFreeHeap()); // Print free heap memory to monitor memory usage
+  }
 }
 
-// Rotate point x,y by precomputed angle (optimization)
-void rot(float x, float y, float cos_a, float sin_a, float &rx, float &ry)
-{
-  rx = cos_a * x - sin_a * y;
-  ry = sin_a * x + cos_a * y;
-}
+// Inline the rotation logic to avoid function call overhead
+#define ROTATE(X, Y, COS_A, SIN_A, RX, RY) \
+  RX = COS_A * X - SIN_A * Y;              \
+  RY = SIN_A * X + COS_A * Y;
 
-// Insertion sort for faster sorting of points based on cz
 void insertionSort(Point arr[], int n)
 {
   for (int i = 1; i < n; i++)
@@ -113,8 +115,8 @@ void insertionSort(Point arr[], int n)
 
 void loop()
 {
-  esp_task_wdt_reset(); // Feed the watchdog timer in each loop
-  checkMemory();        // Monitor memory usage in each loop
+  esp_task_wdt_reset();        // Feed the watchdog timer in each loop
+  checkMemoryEveryFewFrames(); // Check memory every 100 frames
 
   sprite.fillSprite(TFT_BLACK); // Clear the sprite (instead of the screen)
   t += 0.05;                    // Increment time
@@ -130,11 +132,11 @@ void loop()
   for (int i = 0; i < GRID_SIZE; i++)
   {
     float cx, cz;
-    rot(pt[i].x, pt[i].z, cos_t8, sin_t8, cx, cz);
+    ROTATE(pt[i].x, pt[i].z, cos_t8, sin_t8, cx, cz);
     pt[i].cx = cx;
     pt[i].cz = cz;
 
-    rot(pt[i].y, pt[i].cz, cos_t7, sin_t7, pt[i].cy, pt[i].cz);
+    ROTATE(pt[i].y, pt[i].cz, cos_t7, sin_t7, pt[i].cy, pt[i].cz);
 
     pt[i].cz += 2 + cos_t6;
 
