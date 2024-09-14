@@ -2,8 +2,13 @@
 #include <math.h>
 #include "esp_task_wdt.h" // Include for Watchdog Timer handling
 
-TFT_eSPI tft = TFT_eSPI(135, 240);      // Adjusted for 135x240 resolution
-TFT_eSprite sprite = TFT_eSprite(&tft); // Create a sprite for off-screen drawing
+#define TFT_WIDTH 135
+#define TFT_HEIGHT 240
+
+#define GRID_SIZE 6 * 6 * 6
+
+TFT_eSPI tft = TFT_eSPI(TFT_WIDTH, TFT_HEIGHT); // Adjusted for 135x240 resolution
+TFT_eSprite sprite = TFT_eSprite(&tft);         // Create a sprite for off-screen drawing
 
 struct Point
 {
@@ -31,7 +36,7 @@ uint16_t pico8_colors[] = {
     0xFF55  // Peach
 };
 
-Point pt[216]; // Adjusted array size for 6x6x6 grid (6*6*6 = 216 points)
+Point pt[GRID_SIZE]; // Adjusted array size for 6x6x6 grid (6*6*6 = GRID_SIZE points)
 float t = 0;
 
 void setup()
@@ -42,9 +47,9 @@ void setup()
   tft.fillScreen(TFT_BLACK);
 
   // Initialize the sprite to match the screen size (135x240)
-  sprite.createSprite(135, 240);
+  sprite.createSprite(TFT_WIDTH, TFT_HEIGHT);
 
-  // Initialize points for a 6x6x6 grid with better increments (spacing of 0.4)
+  // Initialize points for a 6x6x6 grid
   int idx = 0;
   for (float y = -1; y <= 1; y += 0.4) // 6 steps evenly spaced along y-axis
   {
@@ -52,7 +57,7 @@ void setup()
     {
       for (float z = -1; z <= 1; z += 0.4) // 6 steps evenly spaced along z-axis
       {
-        if (idx < 216)
+        if (idx < GRID_SIZE)
         { // Ensure we stay within array bounds
           pt[idx].x = x;
           pt[idx].y = y;
@@ -81,11 +86,29 @@ void checkMemory()
   Serial.println(ESP.getFreeHeap()); // Print free heap memory to monitor memory usage
 }
 
-// Rotate point x,y by angle a
-void rot(float x, float y, float a, float &rx, float &ry)
+// Rotate point x,y by precomputed angle (optimization)
+void rot(float x, float y, float cos_a, float sin_a, float &rx, float &ry)
 {
-  rx = cos(a) * x - sin(a) * y;
-  ry = cos(a) * y + sin(a) * x;
+  rx = cos_a * x - sin_a * y;
+  ry = sin_a * x + cos_a * y;
+}
+
+// Insertion sort for faster sorting of points based on cz
+void insertionSort(Point arr[], int n)
+{
+  for (int i = 1; i < n; i++)
+  {
+    Point key = arr[i];
+    int j = i - 1;
+
+    // Move elements of arr[0..i-1], that are greater than key.cz, to one position ahead of their current position
+    while (j >= 0 && arr[j].cz < key.cz)
+    {
+      arr[j + 1] = arr[j];
+      j = j - 1;
+    }
+    arr[j + 1] = key;
+  }
 }
 
 void loop()
@@ -96,17 +119,24 @@ void loop()
   sprite.fillSprite(TFT_BLACK); // Clear the sprite (instead of the screen)
   t += 0.05;                    // Increment time
 
+  // Precompute sine and cosine values for rotation
+  float cos_t8 = cos(t / 8);
+  float sin_t8 = sin(t / 8);
+  float cos_t7 = cos(t / 7);
+  float sin_t7 = sin(t / 7);
+  float cos_t6 = cos(t / 6);
+
   // Transform and rotate points
-  for (int i = 0; i < 216; i++)
+  for (int i = 0; i < GRID_SIZE; i++)
   {
     float cx, cz;
-    rot(pt[i].x, pt[i].z, t / 8, cx, cz);
+    rot(pt[i].x, pt[i].z, cos_t8, sin_t8, cx, cz);
     pt[i].cx = cx;
     pt[i].cz = cz;
 
-    rot(pt[i].y, pt[i].cz, t / 7, pt[i].cy, pt[i].cz);
+    rot(pt[i].y, pt[i].cz, cos_t7, sin_t7, pt[i].cy, pt[i].cz);
 
-    pt[i].cz += 2 + cos(t / 6);
+    pt[i].cz += 2 + cos_t6;
 
     // Limit cz to avoid division by very small numbers
     if (pt[i].cz < 0.1)
@@ -115,30 +145,19 @@ void loop()
     }
   }
 
-  // Sort points (bubble sort, furthest first)
-  for (int pass = 0; pass < 4; pass++)
-  {
-    for (int i = 0; i < 215; i++)
-    { // Array bounds check
-      if (pt[i].cz < pt[i + 1].cz)
-      {
-        Point temp = pt[i];
-        pt[i] = pt[i + 1];
-        pt[i + 1] = temp;
-      }
-    }
-  }
+  // Use insertion sort for faster sorting
+  insertionSort(pt, GRID_SIZE);
 
   // Draw points in the sprite
   float rad1 = 5 + cos(t / 4) * 4;
-  for (int i = 0; i < 216; i++)
+  for (int i = 0; i < GRID_SIZE; i++)
   {
-    float sx = 67 + pt[i].cx * 64 / pt[i].cz; // Adjusted for 135x240 screen
-    float sy = 120 + pt[i].cy * 64 / pt[i].cz;
+    float sx = TFT_WIDTH / 2 + pt[i].cx * 64 / pt[i].cz; // Adjusted for 135x240 screen
+    float sy = TFT_HEIGHT / 2 + pt[i].cy * 64 / pt[i].cz;
     float rad = rad1 / pt[i].cz;
 
     // Ensure points are within screen bounds
-    if (sx > 0 && sx < 135 && sy > 0 && sy < 240)
+    if (sx > 0 && sx < TFT_WIDTH && sy > 0 && sy < TFT_HEIGHT)
     {
       sprite.fillCircle(sx, sy, rad, pico8_colors[pt[i].col % 15]); // Use Pico-8 colors
       sprite.fillCircle(sx + rad / 3, sy - rad / 3, rad / 3, TFT_WHITE);
