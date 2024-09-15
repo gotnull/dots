@@ -1,0 +1,1 @@
+https://forum.arduino.cc/t/esp32-2432s028r-all-in-one-display-touch-spi-problems/1059746

@@ -2,8 +2,8 @@
 #include <math.h>
 #include "esp_task_wdt.h" // Include for Watchdog Timer handling
 
-#define TFT_WIDTH 135
-#define TFT_HEIGHT 240
+#define TFT_WIDTH 170
+#define TFT_HEIGHT 320
 
 #define GRID_SIZE 6 * 6 * 6
 
@@ -62,7 +62,7 @@ void setup()
           pt[idx].x = x;
           pt[idx].y = y;
           pt[idx].z = z;
-          pt[idx].col = idx % 15; // Pre-assign colors (cycle through 15 Pico-8 colors)
+          pt[idx].col = 8 + (int(x * 2 + y * 3) % 8);
           idx++;
         }
       }
@@ -147,8 +147,8 @@ void loop()
     const float sy = TFT_HEIGHT / 2 + pt[i].cy * 64 * inv_cz;
     const float rad = rad1 * inv_cz;
 
-    // Only draw points within screen bounds
-    if (sx > 0 && sx < TFT_WIDTH && sy > 0 && sy < TFT_HEIGHT)
+    // Only draw points within screen bounds and with cz > 0.1 to avoid "popping out"
+    if (sx > -rad && sx < TFT_WIDTH + rad && sy > -rad && sy < TFT_HEIGHT + rad && pt[i].cz > 0.1f)
     {
       sprite.fillCircle(sx, sy, rad, pico8_colors[pt[i].col % 15]); // Use Pico-8 colors
       sprite.fillCircle(sx + rad / 3, sy - rad / 3, rad / 3, TFT_WHITE);
