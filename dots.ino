@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <TFT_eSPI.h>
 #include "esp_task_wdt.h"
+#include <FastLED.h> // Include the FastLED library for Perlin noise
 
 float t_mod = 0;                // Time variable for modulating speed
 float pauseTime = 0;            // Time for current pause state
@@ -17,8 +18,8 @@ const float sphereRadius = 1.5; // Increase sphere radius to spread points more
   RX = COS_A * X - SIN_A * Y;              \
   RY = SIN_A * X + COS_A * Y;
 
-#define GRID_SIZE (8 * 8 * 8) // Corrected macro definition for grid size
-#define POINTS_PER_AXIS 8     // Define points along each axis (X, Y, Z)
+#define GRID_SIZE (6 * 6 * 6) // Corrected macro definition for grid size
+#define POINTS_PER_AXIS 6     // Define points along each axis (X, Y, Z)
 
 #define TFT_WIDTH 170
 #define TFT_HEIGHT 320
@@ -153,6 +154,28 @@ void insertionSort(Point arr[], int n)
   }
 }
 
+// Use FastLED's Perlin noise function to apply distortion
+void applyNoiseToPoints(float noiseIntensity, float t)
+{
+  for (int i = 0; i < GRID_SIZE; i++)
+  {
+    // Generate Perlin noise for each axis
+    float noiseX = inoise8(pt[i].x * 50 + t, pt[i].y * 50 + t, pt[i].z * 50 + t);
+    float noiseY = inoise8(pt[i].x * 50 + 100 + t, pt[i].y * 50 + 100 + t, pt[i].z * 50 + 100 + t);
+    float noiseZ = inoise8(pt[i].x * 50 + 200 + t, pt[i].y * 50 + 200 + t, pt[i].z * 50 + 200 + t);
+
+    // Map noise values to the desired range (-1.0 to 1.0)
+    float nx = map(noiseX, 0, 255, -100, 100) / 100.0;
+    float ny = map(noiseY, 0, 255, -100, 100) / 100.0;
+    float nz = map(noiseZ, 0, 255, -100, 100) / 100.0;
+
+    // Apply the noise to the point's position with a scaling factor (noiseIntensity)
+    pt[i].x += nx * noiseIntensity;
+    pt[i].y += ny * noiseIntensity;
+    pt[i].z += nz * noiseIntensity;
+  }
+}
+
 void updateTransformation()
 {
   // If currently transforming, update the progress
@@ -173,6 +196,10 @@ void updateTransformation()
       pt[i].y = customLerp(pt[i].cubeY, pt[i].sphereY, transformProgress);
       pt[i].z = customLerp(pt[i].cubeZ, pt[i].sphereZ, transformProgress);
     }
+
+    // Apply Perlin noise distortion during transformation
+    float noiseIntensity = sin(transformProgress * M_PI); // Noise fades in and out
+    applyNoiseToPoints(noiseIntensity * 0.2, t);          // Adjust the noise factor (e.g., 0.2 for subtle noise)
   }
   else
   {
