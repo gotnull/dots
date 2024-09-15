@@ -3,13 +3,14 @@
 #include <TFT_eSPI.h>
 #include "esp_task_wdt.h"
 
-float t_mod = 0;               // Time variable for modulating speed
-float pauseTime = 0;           // Time for current pause state
-float nextChange = 0;          // When to change speed (randomized)
-float currentSpeed = 1.0;      // Current speed factor
-bool inSlowMotion = false;     // State variable for slow-motion
-bool transforming = false;     // State for when transitioning between cube and sphere
-float transformProgress = 0.0; // Transition progress (0 to 1)
+float t_mod = 0;                // Time variable for modulating speed
+float pauseTime = 0;            // Time for current pause state
+float nextChange = 0;           // When to change speed (randomized)
+float currentSpeed = 1.0;       // Current speed factor
+bool inSlowMotion = false;      // State variable for slow-motion
+bool transforming = false;      // State for when transitioning between cube and sphere
+float transformProgress = 0.0;  // Transition progress (0 to 1)
+const float sphereRadius = 1.5; // Increase sphere radius to spread points more
 
 #define GRID_SIZE 8 * 8 * 8
 
@@ -66,7 +67,7 @@ void initializePoints()
   // Initialize points in a cubic arrangement
   for (float y = -1; y <= 1; y += 0.4)
   {
-    for (float x = -1; x <= 1; x += 0.4) // Fixed the bug here; x was being skipped
+    for (float x = -1; x <= 1; x += 0.4)
     {
       for (float z = -1; z <= 1; z += 0.4)
       {
@@ -77,15 +78,16 @@ void initializePoints()
           pt[idx].cubeY = y;
           pt[idx].cubeZ = z;
 
-          // Sphere coordinates (using spherical coordinates)
+          // Even distribution on a sphere using spherical coordinates
           float u = (float)rand() / RAND_MAX;
           float v = (float)rand() / RAND_MAX;
-          float theta = 2 * M_PI * u;
-          float phi = acos(2 * v - 1);
-          float r = 1.0;
-          pt[idx].sphereX = r * sin(phi) * cos(theta);
-          pt[idx].sphereY = r * sin(phi) * sin(theta);
-          pt[idx].sphereZ = r * cos(phi);
+          float theta = 2 * M_PI * u;  // Azimuth angle
+          float phi = acos(2 * v - 1); // Polar angle
+
+          // Scale the sphere radius to spread points more
+          pt[idx].sphereX = sphereRadius * sin(phi) * cos(theta);
+          pt[idx].sphereY = sphereRadius * sin(phi) * sin(theta);
+          pt[idx].sphereZ = sphereRadius * cos(phi);
 
           // Assign initial positions to cube positions
           pt[idx].x = pt[idx].cubeX;
