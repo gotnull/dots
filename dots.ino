@@ -6,6 +6,7 @@
 #define TFT_HEIGHT 320
 
 #define GRID_SIZE 6 * 6 * 6
+#define SPEED 0.1
 
 TFT_eSPI tft = TFT_eSPI(TFT_WIDTH, TFT_HEIGHT); // Adjusted for 135x240 resolution
 TFT_eSprite sprite = TFT_eSprite(&tft);         // Create a sprite for off-screen drawing
@@ -107,14 +108,14 @@ void loop()
   esp_task_wdt_reset(); // Feed the watchdog timer in each loop
 
   sprite.fillSprite(TFT_BLACK); // Clear the sprite (instead of clearing the entire screen)
-  t += 0.05;                    // Increment time
+  t += SPEED;                   // Increment time
 
   // Precompute sine and cosine values for rotation
-  const float cos_t8 = cos(t / 8);
-  const float sin_t8 = sin(t / 8);
-  const float cos_t7 = cos(t / 7);
-  const float sin_t7 = sin(t / 7);
-  const float cos_t6 = cos(t / 6);
+  const float cos_t8 = cos(t / 4);
+  const float sin_t8 = sin(t / 4);
+  const float cos_t7 = cos(t / 6);
+  const float sin_t7 = sin(t / 6);
+  const float cos_t6 = cos(t / 5);
 
   // Transform and rotate points
   for (int i = 0; i < GRID_SIZE; i++)
