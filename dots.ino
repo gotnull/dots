@@ -1,15 +1,21 @@
-#include <TFT_eSPI.h>
 #include <math.h>
-#include "esp_task_wdt.h" // Include for Watchdog Timer handling
+#include <stdlib.h>
+#include <TFT_eSPI.h>
+#include "esp_task_wdt.h"
+
+float t_mod = 0;           // Time variable for modulating speed
+float pauseTime = 0;       // Time for current pause state
+float nextChange = 0;      // When to change speed (randomized)
+float currentSpeed = 1.0;  // Current speed factor
+bool inSlowMotion = false; // State variable for slow-motion
+
+#define GRID_SIZE 8 * 8 * 8
 
 #define TFT_WIDTH 170
 #define TFT_HEIGHT 320
 
-#define GRID_SIZE 6 * 6 * 6
-#define SPEED 0.1
-
-TFT_eSPI tft = TFT_eSPI(TFT_WIDTH, TFT_HEIGHT); // Adjusted for 135x240 resolution
-TFT_eSprite sprite = TFT_eSprite(&tft);         // Create a sprite for off-screen drawing
+TFT_eSPI tft = TFT_eSPI(TFT_WIDTH, TFT_HEIGHT);
+TFT_eSprite sprite = TFT_eSprite(&tft);
 
 struct Point
 {
@@ -108,16 +114,39 @@ void loop()
   esp_task_wdt_reset(); // Feed the watchdog timer in each loop
 
   sprite.fillSprite(TFT_BLACK); // Clear the sprite (instead of clearing the entire screen)
-  t += SPEED;                   // Increment time
 
-  // Precompute sine and cosine values for rotation
+  // Check if we need to switch between slow-motion and fast-motion
+  if (t_mod >= nextChange)
+  {
+    // Randomly choose a duration for the next slow or fast motion
+    nextChange = t_mod + random(200, 1000) / 100.0; // Random duration (2 to 10 seconds)
+
+    // Randomly decide if we should switch to slow motion or fast motion
+    if (random(0, 2) == 0)
+    {
+      inSlowMotion = true;
+      currentSpeed = 0.5; // Very slow motion
+    }
+    else
+    {
+      inSlowMotion = false;
+      currentSpeed = 5.0; // Fast motion
+    }
+  }
+
+  // Modulate time increment based on the current speed factor (randomized pauses and bursts)
+  float baseSpeed = 0.1;         // Base speed of time progression
+  t_mod += baseSpeed;            // Always increment modulation time
+  t += baseSpeed * currentSpeed; // Dynamic time increment based on current speed (slow or fast)
+
+  // Precompute sine and cosine values for rotation (leave these unchanged)
   const float cos_t8 = cos(t / 4);
   const float sin_t8 = sin(t / 4);
   const float cos_t7 = cos(t / 6);
   const float sin_t7 = sin(t / 6);
   const float cos_t6 = cos(t / 5);
 
-  // Transform and rotate points
+  // Transform and rotate points (as in your original code)
   for (int i = 0; i < GRID_SIZE; i++)
   {
     float cx, cz;
@@ -129,7 +158,6 @@ void loop()
 
     pt[i].cz += 2 + cos_t6;
 
-    // Limit cz to avoid division by very small numbers
     if (pt[i].cz < 0.1f)
     {
       pt[i].cz = 0.1f;
@@ -143,12 +171,11 @@ void loop()
   const float rad1 = 5 + cos(t / 4) * 4;
   for (int i = 0; i < GRID_SIZE; i++)
   {
-    const float inv_cz = 1.0f / pt[i].cz; // Precompute inverse of cz for performance
+    const float inv_cz = 1.0f / pt[i].cz;
     const float sx = TFT_WIDTH / 2 + pt[i].cx * 64 * inv_cz;
     const float sy = TFT_HEIGHT / 2 + pt[i].cy * 64 * inv_cz;
     const float rad = rad1 * inv_cz;
 
-    // Only draw points within screen bounds and with cz > 0.1 to avoid "popping out"
     if (sx > -rad && sx < TFT_WIDTH + rad && sy > -rad && sy < TFT_HEIGHT + rad && pt[i].cz > 0.1f)
     {
       sprite.fillCircle(sx, sy, rad, pico8_colors[pt[i].col % 15]); // Use Pico-8 colors
