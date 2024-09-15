@@ -21,6 +21,9 @@ const float sphereRadius = 1.5; // Increase sphere radius to spread points more
 #define GRID_SIZE (6 * 6 * 6) // Corrected macro definition for grid size
 #define POINTS_PER_AXIS 6     // Define points along each axis (X, Y, Z)
 
+// Starfield parameters
+#define NUM_STARS 100 // Number of stars in the starfield
+
 #define TFT_WIDTH 170
 #define TFT_HEIGHT 320
 
@@ -59,8 +62,62 @@ const uint16_t pico8_colors[] = {
 Point pt[GRID_SIZE]; // Array size for 8x8x8 grid (8*8*8 = GRID_SIZE points)
 float t = 0;
 
+struct Star
+{
+  float x, y, z; // Position of the star
+};
+
+// Array to hold the stars
+Star stars[NUM_STARS];
+
+// Initialize the stars with random positions and depths
+void initializeStars()
+{
+  for (int i = 0; i < NUM_STARS; i++)
+  {
+    stars[i].x = (float)rand() / RAND_MAX * 2 - 1; // X between -1 and 1
+    stars[i].y = (float)rand() / RAND_MAX * 2 - 1; // Y between -1 and 1
+    stars[i].z = (float)rand() / RAND_MAX;         // Z between 0 and 1
+  }
+}
+
+// Update starfield positions and reset stars if they move off the screen
+void updateStars()
+{
+  for (int i = 0; i < NUM_STARS; i++)
+  {
+    stars[i].z -= 0.02; // Move stars towards the screen (increase speed if desired)
+
+    if (stars[i].z <= 0) // Reset star if it reaches the viewer
+    {
+      stars[i].x = (float)rand() / RAND_MAX * 2 - 1; // X between -1 and 1
+      stars[i].y = (float)rand() / RAND_MAX * 2 - 1; // Y between -1 and 1
+      stars[i].z = 1.0;                              // Reset Z to 1 (far away)
+    }
+  }
+}
+
+// Draw the starfield
+void drawStars()
+{
+  for (int i = 0; i < NUM_STARS; i++)
+  {
+    // Project stars onto the screen
+    int sx = TFT_WIDTH / 2 + stars[i].x * (TFT_WIDTH / 2) / stars[i].z;
+    int sy = TFT_HEIGHT / 2 + stars[i].y * (TFT_HEIGHT / 2) / stars[i].z;
+
+    // Calculate brightness based on distance (closer stars are brighter)
+    uint16_t brightness = 255 * (1 - stars[i].z);
+
+    // Draw the star as a small point
+    if (sx >= 0 && sx < TFT_WIDTH && sy >= 0 && sy < TFT_HEIGHT)
+    {
+      sprite.drawPixel(sx, sy, tft.color565(brightness, brightness, brightness));
+    }
+  }
+}
+
 // Linearly interpolate between two values (used for transitions)
-// Renamed to customLerp to avoid conflict with std::lerp
 float customLerp(float start, float end, float progress)
 {
   return start + progress * (end - start);
@@ -71,10 +128,8 @@ void initializePoints()
 {
   int idx = 0;
 
-  // Calculate step size for 8 points along each axis (-1 to 1)
   float stepSize = 2.0 / (POINTS_PER_AXIS - 1); // Dynamically calculate step size
 
-  // Initialize points in a cubic arrangement
   for (int i = 0; i < POINTS_PER_AXIS; i++)
   {
     for (int j = 0; j < POINTS_PER_AXIS; j++)
@@ -83,28 +138,23 @@ void initializePoints()
       {
         if (idx < GRID_SIZE)
         {
-          // Cube coordinates (range from -1 to 1 with calculated step size)
           pt[idx].cubeX = -1.0 + i * stepSize;
           pt[idx].cubeY = -1.0 + j * stepSize;
           pt[idx].cubeZ = -1.0 + k * stepSize;
 
-          // Sphere coordinates (using spherical coordinates)
           float u = (float)rand() / RAND_MAX;
           float v = (float)rand() / RAND_MAX;
           float theta = 2 * M_PI * u;
           float phi = acos(2 * v - 1);
 
-          // Scale the sphere radius to spread points more
           pt[idx].sphereX = sphereRadius * sin(phi) * cos(theta);
           pt[idx].sphereY = sphereRadius * sin(phi) * sin(theta);
           pt[idx].sphereZ = sphereRadius * cos(phi);
 
-          // Assign initial positions to cube positions
           pt[idx].x = pt[idx].cubeX;
           pt[idx].y = pt[idx].cubeY;
           pt[idx].z = pt[idx].cubeZ;
 
-          // Color assignment
           pt[idx].col = 8 + (int(pt[idx].cubeX * 2 + pt[idx].cubeY * 3) % 8);
           idx++;
         }
@@ -120,13 +170,11 @@ void setup()
   tft.setRotation(0); // Portrait mode
   tft.fillScreen(TFT_BLACK);
 
-  // Initialize the sprite to match the screen size
   sprite.createSprite(TFT_WIDTH, TFT_HEIGHT);
 
-  // Initialize points in both cube and sphere spaces
   initializePoints();
+  initializeStars(); // Initialize the starfield
 
-  // Watchdog Timer initialization
   esp_task_wdt_config_t wdt_config = {
       .timeout_ms = 10000,                             // 10 seconds
       .idle_core_mask = (1 << portNUM_PROCESSORS) - 1, // All cores
@@ -143,8 +191,6 @@ void insertionSort(Point arr[], int n)
   {
     Point key = arr[i];
     int j = i - 1;
-
-    // Move elements that are greater than key.cz to one position ahead
     while (j >= 0 && arr[j].cz < key.cz)
     {
       arr[j + 1] = arr[j];
@@ -154,22 +200,18 @@ void insertionSort(Point arr[], int n)
   }
 }
 
-// Use FastLED's Perlin noise function to apply distortion
 void applyNoiseToPoints(float noiseIntensity, float t)
 {
   for (int i = 0; i < GRID_SIZE; i++)
   {
-    // Generate Perlin noise for each axis
     float noiseX = inoise8(pt[i].x * 50 + t, pt[i].y * 50 + t, pt[i].z * 50 + t);
     float noiseY = inoise8(pt[i].x * 50 + 100 + t, pt[i].y * 50 + 100 + t, pt[i].z * 50 + 100 + t);
     float noiseZ = inoise8(pt[i].x * 50 + 200 + t, pt[i].y * 50 + 200 + t, pt[i].z * 50 + 200 + t);
 
-    // Map noise values to the desired range (-1.0 to 1.0)
     float nx = map(noiseX, 0, 255, -100, 100) / 100.0;
     float ny = map(noiseY, 0, 255, -100, 100) / 100.0;
     float nz = map(noiseZ, 0, 255, -100, 100) / 100.0;
 
-    // Apply the noise to the point's position with a scaling factor (noiseIntensity)
     pt[i].x += nx * noiseIntensity;
     pt[i].y += ny * noiseIntensity;
     pt[i].z += nz * noiseIntensity;
@@ -178,38 +220,29 @@ void applyNoiseToPoints(float noiseIntensity, float t)
 
 void updateTransformation()
 {
-  // If currently transforming, update the progress
   if (transforming)
   {
-    transformProgress += 0.02; // Adjust for smoother/slower transformation
-
+    transformProgress += 0.02;
     if (transformProgress >= 1.0)
     {
       transformProgress = 1.0;
-      transforming = false; // Transformation complete
+      transforming = false;
     }
-
-    // Interpolate between cube and sphere positions for each point
     for (int i = 0; i < GRID_SIZE; i++)
     {
       pt[i].x = customLerp(pt[i].cubeX, pt[i].sphereX, transformProgress);
       pt[i].y = customLerp(pt[i].cubeY, pt[i].sphereY, transformProgress);
       pt[i].z = customLerp(pt[i].cubeZ, pt[i].sphereZ, transformProgress);
     }
-
-    // Apply Perlin noise distortion during transformation
-    float noiseIntensity = sin(transformProgress * M_PI); // Noise fades in and out
-    applyNoiseToPoints(noiseIntensity * 0.2, t);          // Adjust the noise factor (e.g., 0.2 for subtle noise)
+    float noiseIntensity = sin(transformProgress * M_PI);
+    applyNoiseToPoints(noiseIntensity * 0.2, t);
   }
   else
   {
-    // Randomly decide to start a transformation
-    if (random(0, 1000) < 10) // Low probability to trigger transformation
+    if (random(0, 1000) < 10)
     {
       transforming = true;
       transformProgress = 0.0;
-
-      // Swap the cube and sphere positions
       for (int i = 0; i < GRID_SIZE; i++)
       {
         float tempX = pt[i].cubeX;
@@ -234,41 +267,29 @@ void loop()
 
   sprite.fillSprite(TFT_BLACK); // Clear the sprite (instead of clearing the entire screen)
 
+  updateStars(); // Update the starfield
+  drawStars();   // Draw the starfield
+
   // Check if we need to switch between slow-motion and fast-motion
   if (t_mod >= nextChange)
   {
-    // Randomly choose a duration for the next slow or fast motion
-    nextChange = t_mod + random(200, 1000) / 100.0; // Random duration (2 to 10 seconds)
-
-    // Randomly decide if we should switch to slow motion or fast motion
-    if (random(0, 2) == 0)
-    {
-      inSlowMotion = true;
-      currentSpeed = 0.5; // Very slow motion
-    }
-    else
-    {
-      inSlowMotion = false;
-      currentSpeed = 5.0; // Fast motion
-    }
+    nextChange = t_mod + random(200, 1000) / 100.0;
+    inSlowMotion = random(0, 2) == 0;
+    currentSpeed = inSlowMotion ? 0.5 : 5.0;
   }
 
-  // Modulate time increment based on the current speed factor (randomized pauses and bursts)
-  float baseSpeed = 0.1;         // Base speed of time progression
-  t_mod += baseSpeed;            // Always increment modulation time
-  t += baseSpeed * currentSpeed; // Dynamic time increment based on current speed (slow or fast)
+  float baseSpeed = 0.1;
+  t_mod += baseSpeed;
+  t += baseSpeed * currentSpeed;
 
-  // Update transformation between cube and sphere
   updateTransformation();
 
-  // Precompute sine and cosine values for rotation (leave these unchanged)
   const float cos_t8 = cos(t / 4);
   const float sin_t8 = sin(t / 4);
   const float cos_t7 = cos(t / 6);
   const float sin_t7 = sin(t / 6);
   const float cos_t6 = cos(t / 5);
 
-  // Transform and rotate points
   for (int i = 0; i < GRID_SIZE; i++)
   {
     float cx, cz;
@@ -286,10 +307,8 @@ void loop()
     }
   }
 
-  // Use insertion sort for depth sorting
   insertionSort(pt, GRID_SIZE);
 
-  // Draw points in the sprite
   const float rad1 = 5 + cos(t / 4) * 4;
   for (int i = 0; i < GRID_SIZE; i++)
   {
@@ -300,11 +319,10 @@ void loop()
 
     if (sx > -rad && sx < TFT_WIDTH + rad && sy > -rad && sy < TFT_HEIGHT + rad && pt[i].cz > 0.1f)
     {
-      sprite.fillCircle(sx, sy, rad, pico8_colors[pt[i].col % 15]); // Use Pico-8 colors
+      sprite.fillCircle(sx, sy, rad, pico8_colors[pt[i].col % 15]);
       sprite.fillCircle(sx + rad / 3, sy - rad / 3, rad / 3, TFT_WHITE);
     }
   }
 
-  // Push the sprite to the screen
   sprite.pushSprite(0, 0);
 }
