@@ -12,7 +12,13 @@ bool transforming = false;      // State for when transitioning between cube and
 float transformProgress = 0.0;  // Transition progress (0 to 1)
 const float sphereRadius = 1.5; // Increase sphere radius to spread points more
 
-#define GRID_SIZE 8 * 8 * 8
+// Inlined and optimized rotation calculation macro (saves function call overhead)
+#define ROTATE(X, Y, COS_A, SIN_A, RX, RY) \
+  RX = COS_A * X - SIN_A * Y;              \
+  RY = SIN_A * X + COS_A * Y;
+
+#define GRID_SIZE (8 * 8 * 8) // Corrected macro definition for grid size
+#define POINTS_PER_AXIS 8     // Define points along each axis (X, Y, Z)
 
 #define TFT_WIDTH 170
 #define TFT_HEIGHT 320
@@ -64,25 +70,28 @@ void initializePoints()
 {
   int idx = 0;
 
+  // Calculate step size for 8 points along each axis (-1 to 1)
+  float stepSize = 2.0 / (POINTS_PER_AXIS - 1); // Dynamically calculate step size
+
   // Initialize points in a cubic arrangement
-  for (float y = -1; y <= 1; y += 0.4)
+  for (int i = 0; i < POINTS_PER_AXIS; i++)
   {
-    for (float x = -1; x <= 1; x += 0.4)
+    for (int j = 0; j < POINTS_PER_AXIS; j++)
     {
-      for (float z = -1; z <= 1; z += 0.4)
+      for (int k = 0; k < POINTS_PER_AXIS; k++)
       {
         if (idx < GRID_SIZE)
         {
-          // Cube coordinates
-          pt[idx].cubeX = x;
-          pt[idx].cubeY = y;
-          pt[idx].cubeZ = z;
+          // Cube coordinates (range from -1 to 1 with calculated step size)
+          pt[idx].cubeX = -1.0 + i * stepSize;
+          pt[idx].cubeY = -1.0 + j * stepSize;
+          pt[idx].cubeZ = -1.0 + k * stepSize;
 
-          // Even distribution on a sphere using spherical coordinates
+          // Sphere coordinates (using spherical coordinates)
           float u = (float)rand() / RAND_MAX;
           float v = (float)rand() / RAND_MAX;
-          float theta = 2 * M_PI * u;  // Azimuth angle
-          float phi = acos(2 * v - 1); // Polar angle
+          float theta = 2 * M_PI * u;
+          float phi = acos(2 * v - 1);
 
           // Scale the sphere radius to spread points more
           pt[idx].sphereX = sphereRadius * sin(phi) * cos(theta);
@@ -95,7 +104,7 @@ void initializePoints()
           pt[idx].z = pt[idx].cubeZ;
 
           // Color assignment
-          pt[idx].col = 8 + (int(x * 2 + y * 3) % 8);
+          pt[idx].col = 8 + (int(pt[idx].cubeX * 2 + pt[idx].cubeY * 3) % 8);
           idx++;
         }
       }
@@ -125,11 +134,6 @@ void setup()
   esp_task_wdt_init(&wdt_config); // Initialize the watchdog timer
   esp_task_wdt_add(NULL);         // Add the current task to the watchdog
 }
-
-// Inlined and optimized rotation calculation macro (saves function call overhead)
-#define ROTATE(X, Y, COS_A, SIN_A, RX, RY) \
-  RX = COS_A * X - SIN_A * Y;              \
-  RY = SIN_A * X + COS_A * Y;
 
 // Optimized insertion sort
 void insertionSort(Point arr[], int n)
