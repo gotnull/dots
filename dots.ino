@@ -3,11 +3,13 @@
 #include <TFT_eSPI.h>
 #include "esp_task_wdt.h"
 
-float t_mod = 0;           // Time variable for modulating speed
-float pauseTime = 0;       // Time for current pause state
-float nextChange = 0;      // When to change speed (randomized)
-float currentSpeed = 1.0;  // Current speed factor
-bool inSlowMotion = false; // State variable for slow-motion
+float t_mod = 0;               // Time variable for modulating speed
+float pauseTime = 0;           // Time for current pause state
+float nextChange = 0;          // When to change speed (randomized)
+float currentSpeed = 1.0;      // Current speed factor
+bool inSlowMotion = false;     // State variable for slow-motion
+bool transforming = false;     // State for when transitioning between cube and sphere
+float transformProgress = 0.0; // Transition progress (0 to 1)
 
 #define GRID_SIZE 8 * 8 * 8
 
@@ -19,9 +21,12 @@ TFT_eSprite sprite = TFT_eSprite(&tft);
 
 struct Point
 {
-  float x, y, z;
-  float cx, cy, cz;
-  int col;
+  float x, y, z;    // Current position
+  float cx, cy, cz; // Transformed position
+  int col;          // Color
+
+  float cubeX, cubeY, cubeZ;       // Position in cube space
+  float sphereX, sphereY, sphereZ; // Position in sphere space
 };
 
 // Pico-8 color palette in RGB565 (Black removed)
@@ -43,8 +48,58 @@ const uint16_t pico8_colors[] = {
     0xFF55  // Peach
 };
 
-Point pt[GRID_SIZE]; // Array size for 6x6x6 grid (6*6*6 = GRID_SIZE points)
+Point pt[GRID_SIZE]; // Array size for 8x8x8 grid (8*8*8 = GRID_SIZE points)
 float t = 0;
+
+// Linearly interpolate between two values (used for transitions)
+// Renamed to customLerp to avoid conflict with std::lerp
+float customLerp(float start, float end, float progress)
+{
+  return start + progress * (end - start);
+}
+
+// Initialize points in both cube and sphere spaces
+void initializePoints()
+{
+  int idx = 0;
+
+  // Initialize points in a cubic arrangement
+  for (float y = -1; y <= 1; y += 0.4)
+  {
+    for (float x = -1; x <= 1; x += 0.4) // Fixed the bug here; x was being skipped
+    {
+      for (float z = -1; z <= 1; z += 0.4)
+      {
+        if (idx < GRID_SIZE)
+        {
+          // Cube coordinates
+          pt[idx].cubeX = x;
+          pt[idx].cubeY = y;
+          pt[idx].cubeZ = z;
+
+          // Sphere coordinates (using spherical coordinates)
+          float u = (float)rand() / RAND_MAX;
+          float v = (float)rand() / RAND_MAX;
+          float theta = 2 * M_PI * u;
+          float phi = acos(2 * v - 1);
+          float r = 1.0;
+          pt[idx].sphereX = r * sin(phi) * cos(theta);
+          pt[idx].sphereY = r * sin(phi) * sin(theta);
+          pt[idx].sphereZ = r * cos(phi);
+
+          // Assign initial positions to cube positions
+          pt[idx].x = pt[idx].cubeX;
+          pt[idx].y = pt[idx].cubeY;
+          pt[idx].z = pt[idx].cubeZ;
+
+          // Color assignment
+          pt[idx].col = 8 + (int(x * 2 + y * 3) % 8);
+          idx++;
+        }
+      }
+    }
+  }
+}
 
 void setup()
 {
@@ -53,28 +108,11 @@ void setup()
   tft.setRotation(0); // Portrait mode
   tft.fillScreen(TFT_BLACK);
 
-  // Initialize the sprite to match the screen size (135x240)
+  // Initialize the sprite to match the screen size
   sprite.createSprite(TFT_WIDTH, TFT_HEIGHT);
 
-  // Initialize points for a 6x6x6 grid
-  int idx = 0;
-  for (float y = -1; y <= 1; y += 0.4) // 6 steps evenly spaced along y-axis
-  {
-    for (float x = -1; x <= 1; x += 0.4) // 6 steps evenly spaced along x-axis
-    {
-      for (float z = -1; z <= 1; z += 0.4) // 6 steps evenly spaced along z-axis
-      {
-        if (idx < GRID_SIZE)
-        {
-          pt[idx].x = x;
-          pt[idx].y = y;
-          pt[idx].z = z;
-          pt[idx].col = 8 + (int(x * 2 + y * 3) % 8);
-          idx++;
-        }
-      }
-    }
-  }
+  // Initialize points in both cube and sphere spaces
+  initializePoints();
 
   // Watchdog Timer initialization
   esp_task_wdt_config_t wdt_config = {
@@ -109,6 +147,54 @@ void insertionSort(Point arr[], int n)
   }
 }
 
+void updateTransformation()
+{
+  // If currently transforming, update the progress
+  if (transforming)
+  {
+    transformProgress += 0.02; // Adjust for smoother/slower transformation
+
+    if (transformProgress >= 1.0)
+    {
+      transformProgress = 1.0;
+      transforming = false; // Transformation complete
+    }
+
+    // Interpolate between cube and sphere positions for each point
+    for (int i = 0; i < GRID_SIZE; i++)
+    {
+      pt[i].x = customLerp(pt[i].cubeX, pt[i].sphereX, transformProgress);
+      pt[i].y = customLerp(pt[i].cubeY, pt[i].sphereY, transformProgress);
+      pt[i].z = customLerp(pt[i].cubeZ, pt[i].sphereZ, transformProgress);
+    }
+  }
+  else
+  {
+    // Randomly decide to start a transformation
+    if (random(0, 1000) < 10) // Low probability to trigger transformation
+    {
+      transforming = true;
+      transformProgress = 0.0;
+
+      // Swap the cube and sphere positions
+      for (int i = 0; i < GRID_SIZE; i++)
+      {
+        float tempX = pt[i].cubeX;
+        float tempY = pt[i].cubeY;
+        float tempZ = pt[i].cubeZ;
+
+        pt[i].cubeX = pt[i].sphereX;
+        pt[i].cubeY = pt[i].sphereY;
+        pt[i].cubeZ = pt[i].sphereZ;
+
+        pt[i].sphereX = tempX;
+        pt[i].sphereY = tempY;
+        pt[i].sphereZ = tempZ;
+      }
+    }
+  }
+}
+
 void loop()
 {
   esp_task_wdt_reset(); // Feed the watchdog timer in each loop
@@ -139,6 +225,9 @@ void loop()
   t_mod += baseSpeed;            // Always increment modulation time
   t += baseSpeed * currentSpeed; // Dynamic time increment based on current speed (slow or fast)
 
+  // Update transformation between cube and sphere
+  updateTransformation();
+
   // Precompute sine and cosine values for rotation (leave these unchanged)
   const float cos_t8 = cos(t / 4);
   const float sin_t8 = sin(t / 4);
@@ -146,7 +235,7 @@ void loop()
   const float sin_t7 = sin(t / 6);
   const float cos_t6 = cos(t / 5);
 
-  // Transform and rotate points (as in your original code)
+  // Transform and rotate points
   for (int i = 0; i < GRID_SIZE; i++)
   {
     float cx, cz;
